@@ -1,8 +1,10 @@
 // ============================================================
-// ULTIMATE ENTERPRISE-GRADE ATOMIC UNISWAP V3 DEPLOYMENT SCRIPT
+// ULTIMATE ENTERPRISE-GRADE UNISWAP V3 DEPLOYMENT SCRIPT + JSON AUDIT LOG
 // ============================================================
 
 const { ethers } = require("hardhat");
+const fs = require("fs");
+const path = require("path");
 const config = require("./uniswap-config");
 
 function encodePriceSqrt(reserve1, reserve0) {
@@ -35,16 +37,13 @@ async function main() {
     console.log(`  LP Recipient (Ledger): ${config.pool.lpRecipient}`);
 
     if (!ethers.isAddress(config.pool.lpRecipient) || config.pool.lpRecipient === ethers.ZeroAddress) {
-        throw new Error("❌ Security Error: Invalid or missing LP_RECIPIENT_LEDGER_ADDRESS in env/config!");
+        throw new Error("❌ Security Error: Invalid or missing LP_RECIPIENT_LEDGER_ADDRESS!");
     }
 
     const pscAddress = config.tokens.PSC;
     const wethAddress = config.tokens.WETH;
-    if (!pscAddress || !wethAddress) {
-        throw new Error("❌ Token addresses for PSC or WETH are not configured!");
-    }
 
-    // 1. Pre-flight ETH Balance Check (3 ETH liquidity + gas buffer)
+    // 1. Pre-flight ETH Balance Check
     const ethBalance = await ethers.provider.getBalance(deployer.address);
     const requiredEth = ethers.parseEther(config.pool.liquidity.ethAmount) + ethers.parseEther("0.05");
     if (ethBalance < requiredEth) {
@@ -58,9 +57,7 @@ async function main() {
 
     const ethDesired = ethers.parseEther(config.pool.liquidity.ethAmount); // 3.0 ETH
     const pscPerEth = BigInt(config.pool.liquidity.pscPerEth);
-    
-    // 2. Correct integer multiplication without 1e18 division error
-    const pscDesired = ethDesired * pscPerEth;
+    const pscDesired = ethDesired * pscPerEth; // Accurate integer multiplication
 
     const amount0Desired = isPscToken0 ? pscDesired : ethDesired;
     const amount1Desired = isPscToken0 ? ethDesired : pscDesired;
@@ -81,7 +78,7 @@ async function main() {
 
     const pmContract = new ethers.Contract(config.routers.nonfungiblePositionManager, PositionManagerABI, deployer);
 
-    // 3. Pre-flight PSC Token Balance & Approval Check (WETH is handled natively)
+    // 2. Pre-flight PSC Token Balance & Approval Check
     const pscToken = await ethers.getContractAt("IERC20", pscAddress);
     const pscBalance = await pscToken.balanceOf(deployer.address);
     if (pscBalance < pscDesired) {
@@ -93,11 +90,9 @@ async function main() {
     await approveTx.wait();
     console.log("PSC Approved successfully.");
 
-    // Dynamic block deadline buffer (20 minutes)
     const block = await ethers.provider.getBlock("latest");
-    const deadline = block.timestamp + 1200; 
+    const deadline = block.timestamp + 1200; // 20 minutes buffer
 
-    // Precise BPS slippage calculation (10,000 basis points)
     const slippageBps = BigInt(config.pool.slippageBps);
     const amount0Min = (amount0Desired * (BigInt(10000) - slippageBps)) / BigInt(10000);
     const amount1Min = (amount1Desired * (BigInt(10000) - slippageBps)) / BigInt(10000);
@@ -117,7 +112,7 @@ async function main() {
         amount1Desired,
         amount0Min,
         amount1Min,
-        recipient: config.pool.lpRecipient, // 🔒 Secured directly to Ledger / Multi-sig
+        recipient: config.pool.lpRecipient, // 🔒 Secured to Ledger / Multi-sig
         deadline
     };
 
@@ -126,14 +121,23 @@ async function main() {
 
     const multicallPayload = [createPoolData, mintData, refundETHData];
 
+    // 3. Security Dry-Run Simulation (Static Call prevents unexpected reverts)
+    console.log("Simulating transaction execution locally (Dry-run)...");
+    try {
+        await pmContract.multicall.staticCall(multicallPayload, { value: ethDesired });
+        console.log("✅ Simulation passed successfully! No revert risks detected.");
+    } catch (simError) {
+        console.error("❌ Simulation failed! Transaction would revert on-chain:", simError.message);
+        process.exit(1);
+    }
+
     // 4. Dynamic Gas Estimation with safety margin
-    console.log("Estimating gas for atomic multicall execution...");
     let estimatedGas;
     try {
         estimatedGas = await pmContract.multicall.estimateGas(multicallPayload, { value: ethDesired });
-        estimatedGas = (estimatedGas * BigInt(120)) / BigInt(100); // Add 20% safety buffer
+        estimatedGas = (estimatedGas * BigInt(120)) / BigInt(100); // Add 20% buffer
     } catch (err) {
-        console.warn("⚠️ Gas estimation warning, falling back to default safe limit:", err.message);
+        console.warn("⚠️ Gas estimation fallback to default safe limit:", err.message);
         estimatedGas = BigInt(3500000);
     }
 
@@ -161,8 +165,44 @@ async function main() {
 
     console.log(`✅ Success! Confirmed in block ${receipt.blockNumber}`);
     console.log(`🏆 Minted LP Position NFT Token ID: ${mintedTokenId}`);
+
+    // 6. Automatically generate and save JSON Audit Log report
+    const reportData = {
+        network: (await ethers.provider.getNetwork()).name,
+        chainId: (await ethers.provider.getNetwork()).chainId.toString(),
+        timestamp: new Date().toISOString(),
+        deployer: deployer.address,
+        lpRecipientLedger: config.pool.lpRecipient,
+        transactionHash: tx.hash,
+        blockNumber: receipt.blockNumber.toString(),
+        gasUsed: receipt.gasUsed.toString(),
+        poolDetails: {
+            token0: token0,
+            token1: token1,
+            feeTier: config.pool.fee,
+            tickLower: config.pool.tickLower.toString(),
+            tickUpper: config.pool.tickUpper.toString(),
+            sqrtPriceX96: sqrtPriceX96.toString()
+        },
+        liquidityProvided: {
+            ethAmount: config.pool.liquidity.ethAmount,
+            pscAmount: ethers.formatUnits(pscDesired, 18),
+            mintedNftTokenId: mintedTokenId
+        },
+        routers: config.routers
+    };
+
+    const reportsDir = path.join(__dirname, "../reports");
+    if (!fs.existsSync(reportsDir)) {
+        fs.mkdirSync(reportsDir, { recursive: true });
+    }
+
+    const reportFilePath = path.join(reportsDir, `uniswap-pool-audit-${receipt.blockNumber}.json`);
+    fs.writeFileSync(reportFilePath, JSON.stringify(reportData, null, 2));
+    console.log(`📁 Audit report successfully saved to: ${reportFilePath}`);
+
     console.log("============================================================");
-    console.log("  POOL SECURELY BOOTSTRAPPED & LEDGER OWNERSHIP ASSIGNED!");
+    console.log("  POOL SECURELY BOOTSTRAPPED & AUDIT LOG GENERATED!");
     console.log("============================================================");
 }
 
