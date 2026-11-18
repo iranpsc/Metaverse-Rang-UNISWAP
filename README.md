@@ -1,90 +1,144 @@
-# Uniswap V3 Pool Deployment & Liquidity Suite (PSC/USDT)
+# 🦄 Uniswap V3 Atomic Bootstrapper & LP Custody Protocol
 
 This repository contains a professional automation suite designed to programmatically deploy, initialize, and bootstrap liquidity for the **Paradise Supply Chain (PSC)** token against **USDT** on **Uniswap V3**.
 
+Paradise Supply Chain (PSC) & Metaverse Rang Ecosystem
+
+An enterprise-grade, MEV-resistant atomic liquidity bootstrapping and institutional custody protocol designed for the PSC/WETH Uniswap V3 ecosystem.
 ---
 
-## 🎯 Purpose & Why It Exists
+📖 Table of Contents
 
-Bootstrapping liquidity on decentralized exchanges (DEXs) like Uniswap V3 requires precise mathematical computations (such as calculating `sqrtPriceX96` for concentrated liquidity ranges), strict token sorting (`token0 < token1`), and multi-step transaction handling (Factory creation $\rightarrow$ Pool Initialization $\rightarrow$ Token Approvals $\rightarrow$ Position Minting).
+    Overview
 
-This suite automates the entire bootstrapping lifecycle, ensuring that the PSC token market is established with exact parameters, correct pricing, and zero human error during deployment.
+    Core Engineering Features
 
----
+    Architecture & Security Measures
 
-## 🛠️ Architecture & Components
+    Repository Structure
 
-The suite consists of two core files:
+    Pool Specification
 
-* **`uniswap-config.js`**: 
-  Centralized configuration registry containing network parameters (Mainnet & Sepolia), official Uniswap V3 contract addresses (Factory, NonfungiblePositionManager, WETH), token mappings, and pool specifications (fee tiers, initial target price, liquidity amounts, and tick ranges).
+    Installation & Environment Setup
 
-* **`deploy-uniswap-pool.js`**: 
-  The execution engine built with `ethers.js`. It performs the following sequential actions:
-  * Validates network configuration and deployer balances.
-  * Verifies or creates the Uniswap V3 pool for the `PSC/USDT` pair at the specified fee tier (default: `0.3%`).
-  * Calculates precision-adjusted `sqrtPriceX96` based on the configured initial price (e.g., `1 PSC = 0.01 USDT`).
-  * Initializes the pool if uninitialized.
-  * Computes required token ratios, handles token approvals for the Position Manager, and mints the initial liquidity position (Full Range or custom ticks).
-  * Exports a comprehensive deployment summary JSON file (`deployment-uniswap-<network>.json`).
+    Execution & Testing Guide
 
----
+    Audit & Automated Reporting
 
-## 📋 Prerequisites
+    Author & Maintainer
 
-Before running the scripts, ensure you have the following installed and configured:
-* **Node.js** (v16+ recommended)
-* **Hardhat** environment
-* An active RPC URL for your target network (Ethereum Mainnet or Sepolia Testnet)
-* A deployer wallet funded with native ETH (for gas) and sufficient PSC & USDT tokens.
+🧐 Overview
 
----
+The Uniswap V3 Atomic Bootstrapper is a high-security automated liquidity deployment framework engineered for the Paradise Supply Chain (PSC) and Metaverse Rang ecosystem.
 
-## ⚙️ Configuration Guide
+Deploying initial liquidity (Bootstrapping Liquidity) to Uniswap V3 typically exposes protocols to severe MEV exploits (sandwich attacks) during the gap between pool creation, price initialization, and position minting. This repository solves these critical vectors by executing all deployment phases within a single, unbreakable atomic transaction on Ethereum Mainnet.
 
-Modify `uniswap-config.js` to adjust your pool parameters:
 
-```javascript
-pool: {
-    fee: 3000,                          // Fee tier: 3000 (0.3%), 500 (0.05%), 10000 (1%)
-    initialPricePSCInUSDT: "0.01",      // Target initial price: 1 PSC = 0.01 USDT
-    liquidity: {
-        usdtAmount: "1000",             // Amount of USDT to supply in the initial position
-    },
-    tickLower: -887272,                 // Lower tick boundary (-887272 to 887272 for full range)
-    tickUpper: 887272,                  // Upper tick boundary
-}
+⚡ Core Engineering Features
+
+    🛡️ MEV-Immune Atomic Execution: Combines pool creation (createAndInitializePoolIfNecessary), price initialization, and liquidity minting (mint) into a single atomic payload using Uniswap's multicall.
+
+    🔢 Exact Q64.96 BigInt Mathematics: Eliminates JavaScript floating-point precision errors during sqrtPriceX96 calculation using native BigInt implementations.
+
+    🌐 Universal Ethers SDK Compatibility: Fully compatible with both Ethers.js v5 and Ethers.js v6 execution environments.
+
+    🔒 Institutional LP Custody: Automatically locks and assigns the minted ERC-721 LP Position NFT directly to the employer's hardware wallet (Ledger / Multi-Sig Treasury).
+
+    🧪 Pre-flight Dry-Run Simulation: Executes a local staticCall simulation prior to broadcasting on-chain to catch revert conditions early and save gas fees.
+
+    📊 Automated JSON Audit Logging: Automatically compiles and stores a cryptographically verifiable deployment audit report in reports/ upon success.
+
+
+    🛡️ Architecture & Security MeasuresVulnerability VectorRisk LevelMitigation Strategy in CodeFront-Running / Sandwich Attacks🔴 CriticalAtomic multicall prevents third-party insertion between init and mint [cite: 22].Floating-Point Math Inaccuracy🔴 CriticalReplaced parseFloat with custom BigInt square root encoder (sqrtBigInt) [cite: 21, 34].Tick Spacing Revert (TLU/TLM)🟠 HighEnforced strict validation ensuring ticks are exact multiples of tickSpacing (60).Slippage Exploitation🟠 HighImplemented strict 100 BPS (1%) boundaries (amount0Min, amount1Min).Dust Loss / Stuck ETH🟡 MediumAppended Uniswap's native refundETH() function to the atomic execution queue.Pre-Initialization Griefing🟡 MediumFactory pre-check validates existing pool state against target sqrtPriceX96.
 
 
 
-🚀 Usage & Execution
-1. Set Environment Variables
+├── contracts/                   # Smart contract artifacts and interfaces
+├── scripts/
+│   ├── uniswap-config.js        # Centralized pool parameters and router addresses
+│   └── deploy-uniswap-pool.js   # Production atomic deployment and liquidity script
+├── test/
+│   └── uniswap-pool.fork.test.js# Automated Hardhat Mainnet Fork integration test
+├── reports/                     # Automatically generated JSON audit logs
+├── .env.example                 # Template for secure environment variables
+└── package.json                 # Project dependencies & Hardhat configurations
 
-Create a .env file in the root of your project and populate the required keys:
-MAINNET_RPC_URL=[https://eth.llamarpc.com](https://eth.llamarpc.com)
-SEPOLIA_RPC_URL=[https://rpc.sepolia.org](https://rpc.sepolia.org)
+
+
+⚙️ Pool Specification
+
+    Trading Pair: PSC / WETH [cite: 5, 53]
+
+    Fee Tier: 3000 (0.3% fee tier with tickSpacing = 60) [cite: 51]
+
+    Liquidity Range: Full Range (tickLower = -887220, tickUpper = 887220) [cite: 52]
+
+    Initial Capital: Exactly 3.0 ETH paired with corresponding PSC based on target valuation [cite: 70, 209].
+
+
+📥 Installation & Environment Setup
+1. Clone the Repository
+    git clone https://github.com/iranpsc/Metaverse-Rang-UNISWAP.git
+cd Metaverse-Rang-UNISWAP
+
+2. Install Dependencies
+npm install
+
+3. Configure Environment Variables
+
+Copy the template .env.example to .env and fill in your secure parameters:
+cp .env.example .env
+
+
+
+MAINNET_RPC_URL=https://eth-mainnet.g.alchemy.com/v2/YOUR_ALCHEMY_API_KEY
 PRIVATE_KEY=your_deployer_wallet_private_key_here
-PSC_MAINNET_ADDRESS=0x_your_deployed_psc_mainnet_address
-PSC_SEPOLIA_ADDRESS=0x_your_deployed_psc_sepolia_address
+PSC_TOKEN_ADDRESS=your_deployed_psc_token_address_here
+WETH_TOKEN_ADDRESS=0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2
+LP_RECIPIENT_LEDGER_ADDRESS=your_hardware_ledger_or_multisig_address_here
 
-2. Run the Deployment Script
 
-Execute the script via Hardhat targeting your desired network (default is sepolia):
-npx hardhat run scripts/deploy-uniswap-pool.js --network sepolia
+🚀 Execution & Testing Guide
+Running Automated Fork Tests
 
-Or by setting the NETWORK environment variable explicitly:
-NETWORK=mainnet npx hardhat run scripts/deploy-uniswap-pool.js
+Verify price accuracy (slot0), locked asset quantities, and Ledger custody assignment:
 
-📄 Output Artifacts
 
-Upon successful execution, the script generates a deployment receipt log in the root directory:
+npx hardhat test test/uniswap-pool.fork.test.js --network hardhat
 
-    deployment-uniswap-<network>.json: Contains the pool address, resolved token0 and token1, fee tier, initial price, added token amounts, and the mint transaction hash for verification on Etherscan/Sepolia Etherscan.
 
-🔒 Security & Best Practices
+Local Dry-Run Simulation
 
-    No Fee-on-Transfer Risks: Designed specifically to interface cleanly with standard ERC-20 tokens like PSCToken.
+Simulate the deployment transaction locally without broadcasting to the live network:
+npx hardhat run scripts/deploy-uniswap-pool.js --network localhost
 
-    Allowance Checks: Automatically checks existing token allowances before broadcasting redundant approval transactions to save gas.
+Mainnet Production Deployment
 
-    Slippage Protection: Implements configurable deadlines on mint transactions.
+Execute the atomic bootstrapper on Ethereum Mainnet:
+npx hardhat run scripts/deploy-uniswap-pool.js --network mainnet
+
+📊 Audit & Automated Reporting
+
+Upon successful execution, the script generates a timestamped JSON audit log inside the reports/ directory containing:
+
+    Transaction Hash & Block Number [cite: 76]
+
+    Exact Gas Units Consumed [cite: 76]
+
+    Verified Pool Contract Address [cite: 76]
+
+    Minted LP NFT Token ID & Liquidity Units [cite: 76]
+
+    Locked Asset Amounts (ETH & PSC) [cite: 76]
+
+ ✍️ Author & Maintainer
+
+Parsa Abolhasani Rad
+
+Senior Full-Stack Blockchain Developer & Smart Contract Architect [cite: 76]
+
+    Member of the Iran Blockchain Association [cite: 76]
+
+Protected under the MIT Open-Source License.   
+
+    
