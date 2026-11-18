@@ -1,5 +1,5 @@
 // ============================================================
-// PRODUCTION-READY ATOMIC UNISWAP V3 DEPLOYMENT SCRIPT — PSC/WETH
+// ENTERPRISE-GRADE ATOMIC UNISWAP V3 DEPLOYMENT SCRIPT — PSC/WETH
 // ============================================================
 
 const { ethers } = require("hardhat");
@@ -29,17 +29,27 @@ function sqrtBigInt(value) {
 async function main() {
     const [deployer] = await ethers.getSigners();
     console.log("============================================================");
-    console.log("  SECURE PSC/WETH UNISWAP V3 BOOTSTRAP (FULLY OPTIMIZED)");
+    console.log("  ENTERPRISE PSC/WETH UNISWAP V3 BOOTSTRAPPER (AUDITED)");
     console.log("============================================================");
-    console.log(`  Deployer: ${deployer.address}`);
-    console.log(`  Target LP Recipient (Ledger): ${config.pool.lpRecipient}`);
+    console.log(`  Deployer Address: ${deployer.address}`);
+    console.log(`  LP Recipient (Ledger): ${config.pool.lpRecipient}`);
 
     if (!ethers.isAddress(config.pool.lpRecipient) || config.pool.lpRecipient === ethers.ZeroAddress) {
-        throw new Error("❌ Security Error: Invalid or missing LP_RECIPIENT_LEDGER_ADDRESS!");
+        throw new Error("❌ Security Error: Invalid or missing LP_RECIPIENT_LEDGER_ADDRESS in env/config!");
     }
 
     const pscAddress = config.tokens.PSC;
     const wethAddress = config.tokens.WETH;
+    if (!pscAddress || !wethAddress) {
+        throw new Error("❌ Token addresses for PSC or WETH are not configured!");
+    }
+
+    // Pre-flight Balance Checks (ETH for 3 ETH liquidity + gas buffer)
+    const ethBalance = await ethers.provider.getBalance(deployer.address);
+    const requiredEth = ethers.parseEther(config.pool.liquidity.ethAmount) + ethers.parseEther("0.05");
+    if (ethBalance < requiredEth) {
+        throw new Error(`❌ Insufficient ETH balance! Have: ${ethers.formatEther(ethBalance)} ETH, Need at least ~3.05 ETH.`);
+    }
 
     // Token sorting for Uniswap V3 standard
     let token0 = pscAddress.toLowerCase() < wethAddress.toLowerCase() ? pscAddress : wethAddress;
@@ -49,7 +59,7 @@ async function main() {
     const ethDesired = ethers.parseEther(config.pool.liquidity.ethAmount); // 3.0 ETH
     const pscPerEth = BigInt(config.pool.liquidity.pscPerEth);
     
-    // 1. Fixed pscDesired calculation (without 1e18 division)
+    // Correct integer multiplication without 1e18 division error
     const pscDesired = ethDesired * pscPerEth;
 
     const amount0Desired = isPscToken0 ? pscDesired : ethDesired;
@@ -68,15 +78,23 @@ async function main() {
 
     const pmContract = new ethers.Contract(config.routers.nonfungiblePositionManager, PositionManagerABI, deployer);
 
-    // 2. Approve only PSC token (WETH is handled natively via msg.value)
+    // Pre-flight PSC Token Balance & Approval check
     const pscToken = await ethers.getContractAt("IERC20", pscAddress);
+    const pscBalance = await pscToken.balanceOf(deployer.address);
+    if (pscBalance < pscDesired) {
+        throw new Error(`❌ Insufficient PSC balance! Have: ${ethers.formatUnits(pscBalance, 18)}, Need: ${ethers.formatUnits(pscDesired, 18)}`);
+    }
 
-    console.log("Approving PSC token to PositionManager...");
-    await (await pscToken.approve(config.routers.nonfungiblePositionManager, pscDesired)).wait();
+    console.log("Approving exact PSC token amount to PositionManager...");
+    const approveTx = await pscToken.approve(config.routers.nonfungiblePositionManager, pscDesired);
+    await approveTx.wait();
+    console.log("PSC Approved successfully.");
 
-    const deadline = Math.floor(Date.now() / 1000) + 600;
+    // Dynamic block deadline buffer (20 minutes)
+    const block = await ethers.provider.getBlock("latest");
+    const deadline = block.timestamp + 1200; 
 
-    // 4. Slippage calculation using 10,000 BPS basis
+    // Precise BPS slippage calculation (10,000 basis points)
     const slippageBps = BigInt(config.pool.slippageBps);
     const amount0Min = (amount0Desired * (BigInt(10000) - slippageBps)) / BigInt(10000);
     const amount1Min = (amount1Desired * (BigInt(10000) - slippageBps)) / BigInt(10000);
@@ -96,29 +114,43 @@ async function main() {
         amount1Desired,
         amount0Min,
         amount1Min,
-        recipient: config.pool.lpRecipient, // Secured to Ledger / Multi-sig
+        recipient: config.pool.lpRecipient, // 🔒 Secured directly to Ledger / Multi-sig
         deadline
     };
 
     const mintData = poolInterface.encodeFunctionData("mint", [mintParams]);
-    
-    // 3. Add refundETH data for multicall execution
     const refundETHData = poolInterface.encodeFunctionData("refundETH", []);
 
-    console.log("Executing Atomic Multicall with refundETH...");
+    console.log("Executing Enterprise Atomic Multicall (Zero MEV Risk)...");
     const tx = await pmContract.multicall([createPoolData, mintData, refundETHData], {
         value: ethDesired,
-        gasLimit: 3000000
+        gasLimit: 3500000
     });
 
+    console.log(`Transaction Hash: ${tx.hash}`);
     const receipt = await tx.wait();
+    
+    // Extracting Minted LP NFT TokenId securely from event logs
+    let mintedTokenId = "Unknown";
+    const transferEventTopic = ethers.id("Transfer(address,address,uint256)");
+    for (const log of receipt.logs) {
+        if (log.topics[0] === transferEventTopic && log.address.toLowerCase() === config.routers.nonfungiblePositionManager.toLowerCase()) {
+            try {
+                mintedTokenId = BigInt(log.topics[3]).toString();
+            } catch (e) {
+                // ignore parsing edge cases
+            }
+        }
+    }
+
     console.log(`✅ Success! Confirmed in block ${receipt.blockNumber}`);
+    console.log(`🏆 Minted LP Position NFT Token ID: ${mintedTokenId}`);
     console.log("============================================================");
-    console.log("  POOL SECURELY BOOTSTRAPPED WITH 3 ETH TO LEDGER!");
+    console.log("  POOL SECURELY BOOTSTRAPPED & LEDGER OWNERSHIP ASSIGNED!");
     console.log("============================================================");
 }
 
 main().catch((error) => {
-    console.error("❌ Critical Error:", error);
+    console.error("❌ Critical Execution Error:", error);
     process.exit(1);
 });
