@@ -1,5 +1,5 @@
 // ============================================================
-// ENTERPRISE-GRADE ATOMIC UNISWAP V3 DEPLOYMENT SCRIPT — PSC/WETH
+// ULTIMATE ENTERPRISE-GRADE ATOMIC UNISWAP V3 DEPLOYMENT SCRIPT
 // ============================================================
 
 const { ethers } = require("hardhat");
@@ -29,7 +29,7 @@ function sqrtBigInt(value) {
 async function main() {
     const [deployer] = await ethers.getSigners();
     console.log("============================================================");
-    console.log("  ENTERPRISE PSC/WETH UNISWAP V3 BOOTSTRAPPER (AUDITED)");
+    console.log("  ULTIMATE ENTERPRISE PSC/WETH UNISWAP V3 BOOTSTRAPPER");
     console.log("============================================================");
     console.log(`  Deployer Address: ${deployer.address}`);
     console.log(`  LP Recipient (Ledger): ${config.pool.lpRecipient}`);
@@ -44,7 +44,7 @@ async function main() {
         throw new Error("❌ Token addresses for PSC or WETH are not configured!");
     }
 
-    // Pre-flight Balance Checks (ETH for 3 ETH liquidity + gas buffer)
+    // 1. Pre-flight ETH Balance Check (3 ETH liquidity + gas buffer)
     const ethBalance = await ethers.provider.getBalance(deployer.address);
     const requiredEth = ethers.parseEther(config.pool.liquidity.ethAmount) + ethers.parseEther("0.05");
     if (ethBalance < requiredEth) {
@@ -59,7 +59,7 @@ async function main() {
     const ethDesired = ethers.parseEther(config.pool.liquidity.ethAmount); // 3.0 ETH
     const pscPerEth = BigInt(config.pool.liquidity.pscPerEth);
     
-    // Correct integer multiplication without 1e18 division error
+    // 2. Correct integer multiplication without 1e18 division error
     const pscDesired = ethDesired * pscPerEth;
 
     const amount0Desired = isPscToken0 ? pscDesired : ethDesired;
@@ -68,6 +68,9 @@ async function main() {
     let reserve0 = isPscToken0 ? pscDesired : ethDesired;
     let reserve1 = isPscToken0 ? ethDesired : pscDesired;
     const sqrtPriceX96 = encodePriceSqrt(reserve1, reserve0);
+
+    console.log(`  Initial Ratio Check: 1 ETH = ${config.pool.liquidity.pscPerEth} PSC`);
+    console.log(`  Total Bootstrapping Liquidity: 3.0 ETH + ${ethers.formatUnits(pscDesired, 18)} PSC`);
 
     const PositionManagerABI = [
         "function createAndInitializePoolIfNecessary(address token0, address token1, uint24 fee, uint160 sqrtPriceX96) external payable returns (address pool)",
@@ -78,7 +81,7 @@ async function main() {
 
     const pmContract = new ethers.Contract(config.routers.nonfungiblePositionManager, PositionManagerABI, deployer);
 
-    // Pre-flight PSC Token Balance & Approval check
+    // 3. Pre-flight PSC Token Balance & Approval Check (WETH is handled natively)
     const pscToken = await ethers.getContractAt("IERC20", pscAddress);
     const pscBalance = await pscToken.balanceOf(deployer.address);
     if (pscBalance < pscDesired) {
@@ -121,16 +124,29 @@ async function main() {
     const mintData = poolInterface.encodeFunctionData("mint", [mintParams]);
     const refundETHData = poolInterface.encodeFunctionData("refundETH", []);
 
-    console.log("Executing Enterprise Atomic Multicall (Zero MEV Risk)...");
-    const tx = await pmContract.multicall([createPoolData, mintData, refundETHData], {
+    const multicallPayload = [createPoolData, mintData, refundETHData];
+
+    // 4. Dynamic Gas Estimation with safety margin
+    console.log("Estimating gas for atomic multicall execution...");
+    let estimatedGas;
+    try {
+        estimatedGas = await pmContract.multicall.estimateGas(multicallPayload, { value: ethDesired });
+        estimatedGas = (estimatedGas * BigInt(120)) / BigInt(100); // Add 20% safety buffer
+    } catch (err) {
+        console.warn("⚠️ Gas estimation warning, falling back to default safe limit:", err.message);
+        estimatedGas = BigInt(3500000);
+    }
+
+    console.log(`Executing Ultimate Atomic Multicall (Gas Limit: ${estimatedGas.toString()})...`);
+    const tx = await pmContract.multicall(multicallPayload, {
         value: ethDesired,
-        gasLimit: 3500000
+        gasLimit: estimatedGas
     });
 
     console.log(`Transaction Hash: ${tx.hash}`);
     const receipt = await tx.wait();
     
-    // Extracting Minted LP NFT TokenId securely from event logs
+    // 5. Extracting Minted LP NFT TokenId securely from event logs
     let mintedTokenId = "Unknown";
     const transferEventTopic = ethers.id("Transfer(address,address,uint256)");
     for (const log of receipt.logs) {
