@@ -1,5 +1,5 @@
 // ============================================================
-// ENTERPRISE UNISWAP V3 POOL CONFIGURATION — PSC / WETH
+// ULTIMATE ENTERPRISE UNISWAP V3 POOL CONFIGURATION — PSC / WETH
 // ============================================================
 
 require("dotenv").config();
@@ -8,8 +8,8 @@ module.exports = {
   pool: {
     fee: 3000,                          // 0.3% Fee Tier (tickSpacing = 60)
     tickSpacing: 60,
-    tickLower: -887220,                 // Exact multiple of 60 for Full Range (-887220)
-    tickUpper: 887220,                  // Exact multiple of 60 for Full Range (887220)
+    tickLower: -887220,                 // Exact multiple of 60 for Full Range
+    tickUpper: 887220,                  // Exact multiple of 60 for Full Range
     liquidity: {
       ethAmount: "3.0",                 // Fixed 3 ETH initial bootstrapping liquidity
       pscPerEth: "100000",             // Initial valuation ratio: 1 ETH = 100,000 PSC
